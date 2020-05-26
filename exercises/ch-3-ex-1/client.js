@@ -27,14 +27,14 @@ var authServer = {
  * Add the client information in here
  */
 var client = {
-	"client_id": "",
-	"client_secret": "",
+	"client_id": "oauth-client-1",
+	"client_secret": "oauth-client-secret-1",
 	"redirect_uris": ["http://localhost:9000/callback"]
 };
 
 var protectedResource = 'http://localhost:9002/resource';
 
-var state = null;
+var state = randomstring.generate();
 
 var access_token = null;
 var scope = null;
@@ -44,19 +44,37 @@ app.get('/', function (req, res) {
 });
 
 app.get('/authorize', function(req, res){
-
-	/*
-	 * Send the user to the authorization server
-	 */
-	
+	const authorizeUrl = buildUrl(authServer.authorizationEndpoint, {
+    response_type: 'code',
+    client_id: client.client_id,
+    redirect_uri: client.redirect_uris[0],
+    state: state
+  })
+  res.redirect(authorizeUrl)
 });
 
 app.get('/callback', function(req, res){
+  if (req.query.state !== state) {
+    res.render('error', {error: 'State value did not match!!'})
+  }
+  const code = req.query.code
 
-	/*
-	 * Parse the response from the authorization server and get a token
-	 */
-	
+  const formData = qs.stringify({
+    grant_type: 'authorization_code',
+    code: code,
+    redirect_uri: client.redirect_uris[0]
+  })
+  const headers = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    'Authorization': 'Basic ' + encodeClientCredentials(client.client_id, client.client_secret)
+  }
+  const tokRes = request('POST', authServer.tokenEndpoint, {
+    body: formData,
+    headers: headers
+  })
+  const body = JSON.parse(tokRes.getBody())
+  access_token = body.access_token
+  res.render('index', {access_token: body.access_token, scope: scope})
 });
 
 app.get('/fetch_resource', function(req, res) {
@@ -64,7 +82,7 @@ app.get('/fetch_resource', function(req, res) {
 	/*
 	 * Use the access token to call the resource server
 	 */
-	
+
 });
 
 var buildUrl = function(base, options, hash) {
@@ -79,7 +97,7 @@ var buildUrl = function(base, options, hash) {
 	if (hash) {
 		newUrl.hash = hash;
 	}
-	
+
 	return url.format(newUrl);
 };
 
@@ -94,4 +112,4 @@ var server = app.listen(9000, 'localhost', function () {
   var port = server.address().port;
   console.log('OAuth Client is listening at http://%s:%s', host, port);
 });
- 
+
