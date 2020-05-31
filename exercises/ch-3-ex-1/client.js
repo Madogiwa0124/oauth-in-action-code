@@ -79,8 +79,17 @@ app.get('/callback', function(req, res){
 
 app.get('/fetch_resource', function(req, res) {
   if(!access_token) {
-    res.render('error', {error: 'Missing Access Token'})
+    console.log('error', {error: 'Missing Access Token'})
+    const authorizeUrl = buildUrl(authServer.authorizationEndpoint, {
+      response_type: 'code',
+      client_id: client.client_id,
+      redirect_uri: client.redirect_uris[0],
+      state: state
+    })
+    res.redirect(authorizeUrl)
+    return
   }
+
   const headers = { 'Authorization': 'Bearer ' + access_token }
   const resource = request('POST', protectedResource, { headers: headers })
   if(resource.statusCode >= 200 && resource.statusCode < 300) {
@@ -88,7 +97,14 @@ app.get('/fetch_resource', function(req, res) {
     res.render('data', { resource: body })
     return
   } else {
-    res.render('error', { error: 'Server returned response code:' + resource.statusCode })
+    const authorizeUrl = buildUrl(authServer.authorizationEndpoint, {
+      response_type: 'code',
+      client_id: client.client_id,
+      redirect_uri: client.redirect_uris[0],
+      state: state
+    })
+    res.redirect(authorizeUrl)
+    console.log('error', { error: 'Server returned response code:' + resource.statusCode })
     return
   }
 });
