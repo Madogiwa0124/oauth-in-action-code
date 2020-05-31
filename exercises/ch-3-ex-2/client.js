@@ -138,7 +138,14 @@ app.get('/fetch_resource', function(req, res) {
       refreshAccessToken(req, res)
       return
     } else {
-      res.render('error', { error: resource.statusCode})
+      state = randomstring.generate();
+      const authorizeUrl = buildUrl(authServer.authorizationEndpoint, {
+        response_type: 'code',
+        client_id: client.client_id,
+        redirect_uri: client.redirect_uris[0],
+        state: state
+      })
+      res.redirect(authorizeUrl)
       return
     }
 	}
