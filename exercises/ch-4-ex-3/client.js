@@ -31,7 +31,7 @@ var client = {
 	"client_id": "oauth-client-1",
 	"client_secret": "oauth-client-secret-1",
 	"redirect_uris": ["http://localhost:9000/callback"],
-	"scope": "fruit veggies meats"
+	"scope": "fruit veggies meats lowcarb"
 };
 
 var produceApi = 'http://localhost:9002/produce';
@@ -52,7 +52,7 @@ app.get('/authorize', function(req, res){
 	refresh_token = null;
 	scope = null;
 	state = randomstring.generate();
-	
+
 	var authorizeUrl = url.parse(authServer.authorizationEndpoint, true);
 	delete authorizeUrl.search; // this is to get around odd behavior in the node URL library
 	authorizeUrl.query.response_type = 'code';
@@ -60,19 +60,19 @@ app.get('/authorize', function(req, res){
 	authorizeUrl.query.client_id = client.client_id;
 	authorizeUrl.query.redirect_uri = client.redirect_uris[0];
 	authorizeUrl.query.state = state;
-	
+
 	console.log("redirect", url.format(authorizeUrl));
 	res.redirect(url.format(authorizeUrl));
 });
 
 app.get("/callback", function(req, res){
-	
+
 	if (req.query.error) {
 		// it's an error response, act accordingly
 		res.render('error', {error: req.query.error});
 		return;
 	}
-	
+
 	var resState = req.query.state;
 	if (resState == state) {
 		console.log('State value matches: expected %s got %s', state, resState);
@@ -94,25 +94,25 @@ app.get("/callback", function(req, res){
 		'Authorization': 'Basic ' + new Buffer(querystring.escape(client.client_id) + ':' + querystring.escape(client.client_secret)).toString('base64')
 	};
 
-	var tokRes = request('POST', authServer.tokenEndpoint, 
-		{	
+	var tokRes = request('POST', authServer.tokenEndpoint,
+		{
 			body: form_data,
 			headers: headers
 		}
 	);
 
 	console.log('Requesting access token for code %s',code);
-	
+
 	if (tokRes.statusCode >= 200 && tokRes.statusCode < 300) {
 		var body = JSON.parse(tokRes.getBody());
-	
+
 		access_token = body.access_token;
 		console.log('Got access token: %s', access_token);
 		if (body.refresh_token) {
 			refresh_token = body.refresh_token;
 			console.log('Got refresh token: %s', refresh_token);
 		}
-		
+
 		scope = body.scope;
 		console.log('Got scope: %s', scope);
 
@@ -127,11 +127,11 @@ app.get('/produce', function(req, res) {
 		'Authorization': 'Bearer ' + access_token,
 		'Content-Type': 'application/x-www-form-urlencoded'
 	};
-	
+
 	var resource = request('GET', produceApi,
 		{headers: headers}
 	);
-	
+
 	if (resource.statusCode >= 200 && resource.statusCode < 300) {
 		var body = JSON.parse(resource.getBody());
 		res.render('produce', {scope: scope, data: body});
@@ -140,7 +140,7 @@ app.get('/produce', function(req, res) {
 		res.render('produce', {scope: scope, data: {fruits: [], veggies: [], meats: []}});
 		return;
 	}
-	
+
 });
 
 app.use('/', express.static('files/client'));
@@ -150,4 +150,4 @@ var server = app.listen(9000, 'localhost', function () {
   var port = server.address().port;
   console.log('OAuth Client is listening at http://%s:%s', host, port);
 });
- 
+

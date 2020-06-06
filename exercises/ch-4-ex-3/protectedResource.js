@@ -32,11 +32,11 @@ var getAccessToken = function(req, res, next) {
 	} else if (req.query && req.query.access_token) {
 		inToken = req.query.access_token
 	}
-	
+
 	console.log('Incoming token: %s', inToken);
 	nosql.one(function(token) {
 		if (token.access_token == inToken) {
-			return token;	
+			return token;
 		}
 	}, function(err, token) {
 		if (token) {
@@ -59,15 +59,20 @@ var requireAccessToken = function(req, res, next) {
 };
 
 app.get('/produce', getAccessToken, requireAccessToken, function(req, res) {
-	var produce = {fruit: ['apple', 'banana', 'kiwi'], 
-		veggies: ['lettuce', 'onion', 'potato'], 
-		meats: ['bacon', 'steak', 'chicken breast']};	
+  let produce = { fruit: [], veggies: [], meats: [], lowcarb: [] }
 
 	/*
 	 * Add different kinds of produce based on the incoming token's scope
 	 */
-
-	res.json(produce);
+  hasScope = function(name) { return __.contains(req.access_token.scope, name) }
+  if(hasScope('fruit'))   { produce.fruit   = ['apple', 'banana', 'kiwi']          }
+  if(hasScope('veggies')) { produce.veggies = ['lettuce', 'onion', 'potato']       }
+  if(hasScope('meats'))   { produce.meats   = ['bacon', 'steak', 'chicken breast'] }
+  if(hasScope('lowcarb'))   {
+    produce.veggies = ['lettuce', 'onion']
+    produce.meats   = ['steak', 'chicken breast']
+  }
+  res.json(produce)
 });
 
 var server = app.listen(9002, 'localhost', function () {
@@ -76,4 +81,4 @@ var server = app.listen(9002, 'localhost', function () {
 
   console.log('OAuth Resource Server is listening at http://%s:%s', host, port);
 });
- 
+
