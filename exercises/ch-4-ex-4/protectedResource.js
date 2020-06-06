@@ -32,11 +32,11 @@ var getAccessToken = function(req, res, next) {
 	} else if (req.query && req.query.access_token) {
 		inToken = req.query.access_token
 	}
-	
+
 	console.log('Incoming token: %s', inToken);
 	nosql.one(function(token) {
 		if (token.access_token == inToken) {
-			return token;	
+			return token;
 		}
 	}, function(err, token) {
 		if (token) {
@@ -71,14 +71,27 @@ var bobFavorites = {
 };
 
 app.get('/favorites', getAccessToken, requireAccessToken, function(req, res) {
-	
+
 	/*
 	 * Get different user information based on the information of who approved the token
 	 */
-	
+  makeFavorites = function(userFavorites) {
+    hasScope = function(name) { return __.contains(req.access_token.scope, name) }
+    let favorites = { movies: [], foods: [], music: [] }
+    if(hasScope('movies')) { favorites.movies = userFavorites.movies }
+    if(hasScope('foods'))  { favorites.foods  = userFavorites.foods }
+    if(hasScope('music'))  { favorites.music  = userFavorites.music }
+    return favorites
+  }
+
+  if(req.access_token.user == 'alice') {
+    res.json({ user: 'Alice', favorites: makeFavorites(aliceFavorites) })
+  }
+  if(req.access_token.user == 'bob') {
+    res.json({ user: 'Bob', favorites: makeFavorites(bobFavorites) })
+  }
 	var unknown = {user: 'Unknown', favorites: {movies: [], foods: [], music: []}};
 	res.json(unknown);
-
 });
 
 var server = app.listen(9002, 'localhost', function () {
@@ -87,4 +100,4 @@ var server = app.listen(9002, 'localhost', function () {
 
   console.log('OAuth Resource Server is listening at http://%s:%s', host, port);
 });
- 
+
