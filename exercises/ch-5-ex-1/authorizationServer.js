@@ -26,10 +26,14 @@ var authServer = {
 
 // client information
 var clients = [
-
   /*
    * Enter client information here
    */
+  {
+    "client_id": "oauth-client-1",
+    "client_secret": "oauth-client-secret-1",
+    "redirect_uris": ["http://localhost:9000/callback"]
+  }
 ];
 
 var codes = {};
@@ -45,27 +49,110 @@ app.get('/', function(req, res) {
 });
 
 app.get("/authorize", function(req, res){
-	
+
 	/*
 	 * Process the request, validate the client, and send the user to the approval page
 	 */
-	
+  const client = getClient(req.query.client_id)
+  if(!client) {
+    res.render('error', { error: 'Unknown client' })
+    return;
+  } else if(!__.contains(client.redirect_uris, req.query.redirect_uri)) {
+    res.render('error', { error: 'Invald redirect URI' })
+  }
+  const reqId = randomstring.generate(8)
+  requests[reqId] = req.query
+  res.render('approve', { client: client, reqid: reqId })
 });
 
 app.post('/approve', function(req, res) {
-
 	/*
 	 * Process the results of the approval page, authorize the client
 	 */
-	
+  const reqId = req.body.reqid
+  const query = requests[reqId]
+  delete requests[reqId]
+
+  if(!query) {
+    res.render('error', { error: 'No matching authrization request' })
+    return
+  }
+
+  if(req.body.approve) {
+    if(query.response_type==='code') {
+      const code = randomstring.generate(8)
+      codes[code] = { request: query }
+      const urlParsed = buildUrl(query.redirect_uri, { code: code, state: query.state })
+      res.redirect(urlParsed)
+      return
+    } else {
+      const urlParsed = buildUrl(query.redirect_uri, { error: 'unsupported_response_type'})
+      res.redirect(urlParsed)
+      return
+    }
+  } else {
+    const urlParsed = buildUrl(query.redirect_uri, { error: 'access_denied'})
+    res.redirect(urlParsed)
+    return
+  }
 });
 
 app.post("/token", function(req, res){
-
 	/*
 	 * Process the request, issue an access token
 	 */
+  const auth = req.headers['authorization']
+  let clientId = ""
+  let clientSecret = ""
 
+  if(auth) {
+    const clientCredentials = decodeClientCredentials(auth)
+    clientId = clientCredentials.id
+    clientSecret = clientCredentials.secret
+  }
+
+  if(req.body.client_id) {
+    if(clientId) {
+      res.status(401).json({ error: 'invalid_client'})
+      return
+    }
+    clientId = req.body.client_id
+    clientSecret = req.body.cloent_secret
+  }
+
+  const client = getClient(clientId)
+  if(!client) {
+    console.log(clientId)
+    res.status(401).json({ error: 'invalid_client'})
+    return
+  }
+
+  if(client.client_secret !== clientSecret) {
+    res.status(401).json({ error: 'invalid_client invalid secret'})
+    return
+  }
+
+  if(req.body.grant_type == 'authorization_code') {
+    const code = codes[req.body.code]
+    if(code) {
+      delete codes[req.body.code]
+      if(code.request.client_id = clientId) {
+        const accessToken = randomstring.generate()
+        nosql.insert({ access_token: accessToken, client_id: clientId })
+        const tokenResponse = { access_token: accessToken, token_type: 'Bearer' }
+        res.status(200).json(tokenResponse)
+      } else {
+        res.status(400).json({ error: 'invalid_grant'})
+        return
+      }
+    } else {
+      res.status(400).json({ error: 'invalid_grant'})
+      return
+    }
+  } else {
+    res.status(401).json({ error: 'invalid_client'})
+    return
+  }
 });
 
 var buildUrl = function(base, options, hash) {
@@ -80,14 +167,14 @@ var buildUrl = function(base, options, hash) {
 	if (hash) {
 		newUrl.hash = hash;
 	}
-	
+
 	return url.format(newUrl);
 };
 
 var decodeClientCredentials = function(auth) {
 	var clientCredentials = new Buffer(auth.slice('basic '.length), 'base64').toString().split(':');
 	var clientId = querystring.unescape(clientCredentials[0]);
-	var clientSecret = querystring.unescape(clientCredentials[1]);	
+	var clientSecret = querystring.unescape(clientCredentials[1]);
 	return { id: clientId, secret: clientSecret };
 };
 
@@ -102,4 +189,4 @@ var server = app.listen(9001, 'localhost', function () {
 
   console.log('OAuth Authorization Server is listening at http://%s:%s', host, port);
 });
- 
+
