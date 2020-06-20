@@ -65,7 +65,7 @@ app.get('/authorize', function(req, res){
 	refresh_token = null;
 	scope = null;
 	state = randomstring.generate();
-	
+
 	var authorizeUrl = buildUrl(authServer.authorizationEndpoint, {
 		response_type: 'code',
 		scope: client.scope,
@@ -73,7 +73,7 @@ app.get('/authorize', function(req, res){
 		redirect_uri: client.redirect_uris[0],
 		state: state
 	});
-	
+
 	console.log("redirect", authorizeUrl);
 	res.redirect(authorizeUrl);
 });
@@ -85,7 +85,7 @@ app.get("/callback", function(req, res){
 		res.render('error', {error: req.query.error});
 		return;
 	}
-	
+
 	var resState = req.query.state;
 	if (resState == state) {
 		console.log('State value matches: expected %s got %s', state, resState);
@@ -107,32 +107,61 @@ app.get("/callback", function(req, res){
 		'Authorization': 'Basic ' + encodeClientCredentials(client.client_id, client.client_secret)
 	};
 
-	var tokRes = request('POST', authServer.tokenEndpoint, 
-		{	
+	var tokRes = request('POST', authServer.tokenEndpoint,
+		{
 			body: form_data,
 			headers: headers
 		}
 	);
 
 	console.log('Requesting access token for code %s',code);
-	
+
 	if (tokRes.statusCode >= 200 && tokRes.statusCode < 300) {
 		var body = JSON.parse(tokRes.getBody());
-	
+
 		access_token = body.access_token;
 		console.log('Got access token: %s', access_token);
 		if (body.refresh_token) {
 			refresh_token = body.refresh_token;
 			console.log('Got refresh token: %s', refresh_token);
 		}
-		
+
 		scope = body.scope;
 		console.log('Got scope: %s', scope);
 
 		/*
 		 * Parse and validate the ID token
 		 */
-		
+
+    if(body.id_token) {
+      userInfo = null
+      id_token = null
+
+      var pubKey = jose.KEYUTIL.getKey(rsaKey)
+      var tokenParts = body.id_token.split('.')
+      var payload = JSON.parse(base64url.decode(tokenParts[1]))
+      if(jose.jws.JWS.verify(body.id_token, pubKey, [rsaKey.alg])) {
+
+        if(payload.iss = 'http://localhost:9001/') {
+          if(
+            Array.isArray(payload.aud) &&
+            __.contains(payload.aud. client.client_id) ||
+            payload.aud == client.client_id
+          ) {
+            var now = Math.floor(Date.now() / 1000)
+            if(payload.iat <= now) {
+              if(payload.exp >= now) {
+                id_token = payload
+
+                res.render('userinfo', { userInfo: userInfo, id_token: id_token })
+                return
+              }
+            }
+          }
+        }
+      }
+    }
+
 		res.render('index', {access_token: access_token, refresh_token: refresh_token, scope: scope});
 		return;
 
@@ -148,18 +177,18 @@ app.get('/fetch_resource', function(req, res) {
 		res.render('error', {error: 'Missing access token.'});
 		return;
 	}
-	
+
 	console.log('Making request with access token %s', access_token);
-	
+
 	var headers = {
 		'Authorization': 'Bearer ' + access_token,
 		'Content-Type': 'application/x-www-form-urlencoded'
 	};
-	
+
 	var resource = request('POST', protectedResource,
 		{headers: headers}
 	);
-	
+
 	if (resource.statusCode >= 200 && resource.statusCode < 300) {
 		var body = JSON.parse(resource.getBody());
 		res.render('data', {resource: body});
@@ -169,15 +198,30 @@ app.get('/fetch_resource', function(req, res) {
 		res.render('error', {error: 'Server returned response code: ' + resource.statusCode});
 		return;
 	}
-	
+
 });
 
 app.get('/userinfo', function(req, res) {
-	
+
 	/*
 	 * Call the UserInfo endpoint and store/display the results
 	 */
-	
+
+	var headers = {
+		'Authorization': 'Bearer ' + access_token,
+		'Content-Type': 'application/x-www-form-urlencoded'
+	};
+
+  var resouces = request('GET', authServer.userInfoEndpoint, { headers: headers })
+  if(resouces.statusCode >= 200 && resouces.statusCode < 300) {
+    var body = JSON.parse(resouces.getBody())
+    userInfo = body;
+    res.render('userinfo', { userInfo: userInfo, id_token: id_token })
+    return
+  } else {
+    res.render('error', { error: 'unable to fetchc user info' })
+    return
+  }
 });
 
 app.use('/', express.static('files/client'));
@@ -194,7 +238,7 @@ var buildUrl = function(base, options, hash) {
 	if (hash) {
 		newUrl.hash = hash;
 	}
-	
+
 	return url.format(newUrl);
 };
 
@@ -207,4 +251,4 @@ var server = app.listen(9000, 'localhost', function () {
   var port = server.address().port;
   console.log('OAuth Client is listening at http://%s:%s', host, port);
 });
- 
+

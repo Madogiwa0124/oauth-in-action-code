@@ -41,11 +41,11 @@ var getAccessToken = function(req, res, next) {
 	} else if (req.query && req.query.access_token) {
 		inToken = req.query.access_token
 	}
-	
+
 	console.log('Incoming token: %s', inToken);
 	nosql.one(function(token) {
 		if (token.access_token == inToken) {
-			return token;	
+			return token;
 		}
 	}, function(err, token) {
 		if (token) {
@@ -57,7 +57,7 @@ var getAccessToken = function(req, res, next) {
 		next();
 		return;
 	});
-	
+
 };
 
 var requireAccessToken = function(req, res, next) {
@@ -77,15 +77,54 @@ app.post("/resource", cors(), getAccessToken, function(req, res){
 	} else {
 		res.status(401).end();
 	}
-	
+
 });
 
 var userInfoEndpoint = function(req, res) {
-	
+
 	/*
 	 * Implement the UserInfo Endpoint
 	 */
 
+  if(!__.contains(req.access_token.scope, 'openid')) {
+    res.status(403).end()
+    return
+  }
+
+  var user = req.access_token.user
+  if(!user) {
+    res.status(400).end()
+    return
+  }
+
+  var out = {}
+
+  __.each(req.access_token.scope, function(scope){
+    if(scope == 'openid') {
+      __.each(['sub'], function(claim) {
+        if(user[claim]) { out[claim] = user[claim] }
+      })
+    } else if(scope == 'profile') {
+      __.each(
+        [
+          'name','family_name','given_name',
+          'middle_name','nickname','preferred_username',
+          'profile','picture','website','gender','birthdate',
+          'zoneinfo','locale','updated_at'
+        ],
+        function(claim) {
+          if(user[claim]) { out[claim] = user[claim] }
+        }
+      )
+    } else if(scope == 'email') {
+      __.each(['email', 'email_verified'], function(claim) {
+        if(user[claim]) { out[claim] = user[claim] }
+      })
+    }
+  })
+
+  res.status(200).json(out)
+  return
 };
 
 app.get('/userinfo', getAccessToken, requireAccessToken, userInfoEndpoint);
@@ -98,4 +137,4 @@ var server = app.listen(9002, 'localhost', function () {
 
   console.log('OAuth Resource Server is listening at http://%s:%s', host, port);
 });
- 
+
