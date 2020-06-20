@@ -8,6 +8,7 @@ var querystring = require('querystring');
 var __ = require('underscore');
 __.string = require('underscore.string');
 var jwk = require('node-jose');
+const { keys } = require("underscore");
 
 var app = express();
 
@@ -61,9 +62,9 @@ app.get('/', function(req, res) {
 });
 
 app.get("/authorize", function(req, res){
-	
+
 	var client = getClient(req.query.client_id);
-	
+
 	if (!client) {
 		console.log('Unknown client %s', req.query.client_id);
 		res.render('error', {error: 'Unknown client'});
@@ -73,7 +74,7 @@ app.get("/authorize", function(req, res){
 		res.render('error', {error: 'Invalid redirect URI'});
 		return;
 	} else {
-		
+
 		var rscope = req.query.scope ? req.query.scope.split(' ') : undefined;
 		var cscope = client.scope ? client.scope.split(' ') : undefined;
 		if (__.difference(rscope, cscope).length > 0) {
@@ -84,11 +85,11 @@ app.get("/authorize", function(req, res){
 			res.redirect(urlParsed);
 			return;
 		}
-		
+
 		var reqid = randomstring.generate(8);
-		
+
 		requests[reqid] = req.query;
-		
+
 		res.render('approve', {client: client, reqid: reqid, scope: rscope});
 		return;
 	}
@@ -106,12 +107,12 @@ app.post('/approve', function(req, res) {
 		res.render('error', {error: 'No matching authorization request'});
 		return;
 	}
-	
+
 	if (req.body.approve) {
 		if (query.response_type == 'code') {
 			// user approved access
 			var code = randomstring.generate(8);
-			
+
 			var scope = getScopesFromForm(req.body);
 
 			var client = getClient(query.client_id);
@@ -127,7 +128,7 @@ app.post('/approve', function(req, res) {
 
 			// save the code and request for later
 			codes[code] = { request: query, scope: scope };
-		
+
 			var urlParsed = buildUrl(query.redirect_uri, {
 				code: code,
 				state: query.state
@@ -150,11 +151,11 @@ app.post('/approve', function(req, res) {
 		res.redirect(urlParsed);
 		return;
 	}
-	
+
 });
 
 app.post("/token", function(req, res){
-	
+
 	var auth = req.headers['authorization'];
 	if (auth) {
 		// check the auth header
@@ -162,7 +163,7 @@ app.post("/token", function(req, res){
 		var clientId = clientCredentials.id;
 		var clientSecret = clientCredentials.secret;
 	}
-	
+
 	// otherwise, check the post body
 	if (req.body.client_id) {
 		if (clientId) {
@@ -171,28 +172,28 @@ app.post("/token", function(req, res){
 			res.status(401).json({error: 'invalid_client'});
 			return;
 		}
-		
+
 		var clientId = req.body.client_id;
 		var clientSecret = req.body.client_secret;
 	}
-	
+
 	var client = getClient(clientId);
 	if (!client) {
 		console.log('Unknown client %s', clientId);
 		res.status(401).json({error: 'invalid_client'});
 		return;
 	}
-	
+
 	if (client.client_secret != clientSecret) {
 		console.log('Mismatched client secret, expected %s got %s', client.client_secret, clientSecret);
 		res.status(401).json({error: 'invalid_client'});
 		return;
 	}
-	
+
 	if (req.body.grant_type == 'authorization_code') {
-		
+
 		var code = codes[req.body.code];
-		
+
 		if (code) {
 			delete codes[req.body.code]; // burn our code, it's been used
 			if (code.request.client_id == clientId) {
@@ -200,6 +201,32 @@ app.post("/token", function(req, res){
 				/*
 				 * Generate an access token and associated key, store them, and return them
 				 */
+
+        keystore.generate('RSA', 2048).then(function(key) {
+          var access_token = randomstring.generate()
+          var access_token_key = key.toJSON(true)
+          var access_token_public_key = key.toJSON()
+
+          var token_response = {
+            access_token: access_token,
+            access_token_key: access_token_key,
+            token_type: 'PoP',
+            refresh_token: req.body.refresh_token,
+            scope: code.scope,
+            alg: 'RS256'
+          }
+
+          nosql.insert({
+            access_token: access_token,
+            access_token_key: access_token_public_key,
+            client_id: clientId,
+            scope: code.scope
+          })
+
+          res.status(200).json(token_response)
+          console.log("Issued tokens for code %s", req.body.code)
+          return
+        })
 
 			} else {
 				console.log('Client mismatch, expected %s got %s', code.request.client_id, clientId);
@@ -229,23 +256,23 @@ app.post('/introspect', function(req, res) {
 		res.status(401).end();
 		return;
 	}
-	
+
 	if (resource.resource_secret != resourceSecret) {
 		console.log('Mismatched secret, expected %s got %s', resource.resource_secret, resourceSecret);
 		res.status(401).end();
 		return;
 	}
-	
+
 	var inToken = req.body.token;
 	console.log('Introspecting token %s', inToken);
 	nosql.one(function(token) {
 		if (token.access_token == inToken) {
-			return token;	
+			return token;
 		}
 	}, function(err, token) {
 		if (token) {
 			console.log("We found a matching token: %s", inToken);
-			
+
 			var introspectionResponse = {
 				active: true,
 				iss: 'http://localhost:9001/',
@@ -255,11 +282,12 @@ app.post('/introspect', function(req, res) {
 				scope: token.scope ? token.scope.join(' ') : undefined,
 				client_id: token.client_id
 			};
-			
+
 			/*
 			 * Add in the key and algorithm associated with the token to the introspection response
 			 */
-						
+      introspectionResponse.access_token_key = token.access_token_key
+
 			res.status(200).json(introspectionResponse);
 			return;
 		} else {
@@ -272,8 +300,8 @@ app.post('/introspect', function(req, res) {
 			return;
 		}
 	});
-	
-	
+
+
 });
 
 
@@ -291,7 +319,7 @@ var buildUrl = function(base, options, hash) {
 	if (hash) {
 		newUrl.hash = hash;
 	}
-	
+
 	return url.format(newUrl);
 };
 
@@ -303,7 +331,7 @@ var getScopesFromForm = function(body) {
 var decodeClientCredentials = function(auth) {
 	var clientCredentials = new Buffer(auth.slice('basic '.length), 'base64').toString().split(':');
 	var clientId = querystring.unescape(clientCredentials[0]);
-	var clientSecret = querystring.unescape(clientCredentials[1]);	
+	var clientSecret = querystring.unescape(clientCredentials[1]);
 	return { id: clientId, secret: clientSecret };
 };
 
@@ -316,4 +344,4 @@ var server = app.listen(9001, 'localhost', function () {
 
   console.log('OAuth Authorization Server is listening at http://%s:%s', host, port);
 });
- 
+
